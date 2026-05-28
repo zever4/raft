@@ -40,7 +40,10 @@ impl RaftTypeConfig for MyConfig {
     type Transport = MyTransport;
 }
 
-let node = RaftNode::new(config, state_machine, storage, transport, event_tx, event_rx).await?;
+// Also create state_machine, storage and transport...
+let (event_tx, event_rx) = tokio::sync::mpsc::channel(1024);
+
+let mut node: RaftNode<MyConfig> = RaftNode::new(Config::default(), my_state_machine, my_storage, my_transport, event_tx.clone(), event_rx).await?;
 node.run().await;
 ```
 
