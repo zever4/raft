@@ -1,0 +1,31 @@
+[package]
+name = "kv-store"
+version = "0.1.0"
+edition = "2021"
+
+# Executable for running nodes
+[[bin]]
+name = "kv_node"
+path = "src/main.rs"
+
+# Executable for interacting with state machine
+[[bin]]
+name = "kv_client"
+path = "src/client_main.rs"
+
+[dependencies]
+raft = { path = "../../" }
+
+tokio = { version = "1", features = ["full"] }
+tonic = "0.14.6"
+prost = "0.14.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode-next = "2.1.0"
+async-trait = "0.1.89"
+tonic-prost = "0.14.6"
+tempfile = "3.27.0"
+rand = "0.10.1"
+
+[build-dependencies]
+tonic-prost-build = "0.14.6"
