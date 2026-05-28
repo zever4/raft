@@ -1,1 +1,5 @@
 /target
+**/*.rs.bk
+Cargo.lock
+raft_data_*/
+*.tmp
