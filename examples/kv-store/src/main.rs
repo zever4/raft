@@ -110,5 +110,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Raft Core started.");
     raft_node.run().await;
 
+    // TODO: Add an example of how to shutdown a node.
+    // Possible problem: `run()` blocks a thread, need to wait for ctrl_c or run a node in another
+    // thread.
+
     Ok(())
 }

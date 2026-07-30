@@ -11,20 +11,23 @@ pub trait RaftTypeConfig: Send + Sync + 'static {
     type Transport: Transport + Send + Sync + 'static;
 }
 
+// TODO: Documentation about what exaclty these funcs must do
+// For now see examples/kv-store/store.rs.
+//
 /// WAL + term/voted_for + snapshots
 #[async_trait]
 pub trait Storage: Clone + Send + Sync + 'static {
-    /// Сохранить текущий term и за кого голосовали
+    /// Save node's current term and id of node it voted for
     async fn save_term(&mut self, term: u64, voted_for: Option<NodeId>) -> Result<(), String>;
 
-    /// Загрузить term и voted_for
+    /// Load current term and voted_for
     async fn load_term(&self) -> Result<(u64, Option<NodeId>), String>;
 
-    /// Дописать записи в лог (append-only)
+    /// Append log with new entries.
     async fn append_log(&mut self, entries: &[LogEntry]) -> Result<(), String>;
 
-    /// Load whole log at node's start.
     /// Must return entries only after last snapshot.
+    /// (Should be handled by truncate_log)
     async fn load_log(&self) -> Result<Vec<LogEntry>, String>;
 
     /// Truncate log up to `index`
@@ -43,11 +46,12 @@ pub trait Storage: Clone + Send + Sync + 'static {
     /// Save snapshot with index and term of last entry in this snapshot.
     async fn save_snapshot(&mut self, index: u64, term: u64, data: &[u8]) -> Result<(), String>;
 
-    // Option<(last_included_index, last_included_term, data)>
+    // Returns Option<(last_included_index, last_included_term, data)>
     async fn load_snapshot(&self) -> Result<Option<(u64, u64, Vec<u8>)>, String>;
 }
 
-/// Must be implemented by user
+// TODO: Documentation about what exaclty these funcs must do
+// For now see examples/kv-store/store.rs.
 pub trait StateMachine: Send + Sync + 'static {
     /// Apply log entry. Executed when entry is committed.
     ///
@@ -60,11 +64,12 @@ pub trait StateMachine: Send + Sync + 'static {
     /// Serialize current state machine
     fn snapshot(&self) -> Result<Vec<u8>, String>;
 
+    /// Restore the state using snapshot data.
     fn restore(&mut self, snapshot: &[u8]) -> Result<(), String>;
 }
 
 // TODO: Documentation about what exaclty these funcs must do
-
+// For now see examples/kv-store/network.rs.
 #[async_trait]
 pub trait Transport: Send + Sync {
     async fn send_client_command(&self, target: NodeId, req: ClientCommandRequest)

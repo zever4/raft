@@ -95,8 +95,7 @@ pub enum RaftEvent {
     InstallSnapshotResponseReceived(InstallSnapshotResponse, NodeId, u64),
 
     // Signal to shutdown the node.
-    // Could be called by sending RaftEvent::Shutdown to node.
-    // There might be any reason to send it: SIGTERM, SIGINT(ctrl+c), etc.
+    // Should be called using the `shutdown_node()` method, but can also send RaftEvent::Shutdown directly to node.
     Shutdown,
 }
 
@@ -156,8 +155,8 @@ impl<C: RaftTypeConfig> RaftNode<C> {
             ));
         }
 
-        // Arc<RwLock<...>> is needed because making a snapshot might be a long operation, that
-        // will completely block leader cycle if executed in same thread
+        // Arc<RwLock<...>> is needed because making a snapshot might be a long operation,
+        // so it should be executed in another thread.
         let state_machine = Arc::new(std::sync::RwLock::new(state_machine));
 
         Ok(Self {
@@ -176,6 +175,13 @@ impl<C: RaftTypeConfig> RaftNode<C> {
             event_tx,
             event_rx,
         })
+    }
+
+    /// Sends Shutdown request to node's event channel.
+    /// Returns `Err` if it failed to send an event.
+    pub async fn shutdown_node(&mut self) -> Result<(), mpsc::error::SendError<RaftEvent>> {
+        self.event_tx.send(RaftEvent::Shutdown).await?;
+        Ok(())
     }
 
     pub async fn run(&mut self) {
@@ -384,10 +390,6 @@ impl<C: RaftTypeConfig> RaftNode<C> {
         loop {
             tokio::select! {
                 _ = heartbeat_timer.tick() => {
-
-                    // ================ DEBUG ===========================
-                    println!("💓 [LEADER {}] Heartbeat timer ticked. Broadcasting AppendEntries...", self.config.node_id);
-
                     for &peer in &self.config.peers {
                         self.send_append_entries_to_follower(peer);
                     }
@@ -431,14 +433,6 @@ impl<C: RaftTypeConfig> RaftNode<C> {
                                     self.send_append_entries_to_follower(follower);
                                 }
                             } else {
-
-
-                                // =========================== DEBUG =========================================
-
-                                println!("📬 [LEADER {}] Received successful AppendEntriesResponse from Follower {}. Match target: {}", self.config.node_id, follower, match_target);
-
-
-
                                 let match_idx = leader_state.match_index.entry(follower).or_insert(0);
                                 *match_idx = std::cmp::max(*match_idx, match_target);
 
@@ -511,13 +505,12 @@ impl<C: RaftTypeConfig> RaftNode<C> {
                                     }
 
                                     // Check if snapshot is required.
-                                    // First snapshot happens here.
-                                    // After it happens, leader will send snapshot request for
-                                    // every follower, if leader no longer has entry with their
-                                    // last index. (if it was deleted after a snapshot)
+                                    //
+                                    // Leader will send a snapshot request for every follower,
+                                    // if it no longer has an entry with their last index.
+                                    // (in case it was deleted from log after a snapshot)
                                     if self.last_applied - self.log.snapshot_index() >= self.config.snapshot_threshold {
                                         if let Some(last_applied_entry) = self.log.get(self.last_applied) {
-
                                             let sm = self.state_machine.clone();
                                             let mut st = self.storage.clone();
                                             let event_tx_clone = self.event_tx.clone();
@@ -526,10 +519,9 @@ impl<C: RaftTypeConfig> RaftNode<C> {
                                             let snapshot_term = last_applied_entry.term;
 
                                             tokio::spawn(async move {
-
                                                 let snapshot_result = tokio::task::spawn_blocking(move || {
-                                                    let guard = sm.read().unwrap();
-                                                    guard.snapshot()
+                                                    let state_machine = sm.read().unwrap();
+                                                    state_machine.snapshot()
                                                 }).await;
 
                                                 match snapshot_result {
@@ -1120,7 +1112,7 @@ impl<C: RaftTypeConfig> RaftNode<C> {
             .await
         {
             eprintln!(
-                "📦 [NODE {}] Failed to save physical snapshot: {}",
+                "📦 [NODE {}] Failed to save snapshot in storage: {}",
                 self.config.node_id, e
             );
             return InstallSnapshotResponse {
@@ -1157,10 +1149,7 @@ impl<C: RaftTypeConfig> RaftNode<C> {
     // Shuts node down gracefully.
     // If node was a leader, it saves current state before exiting.
     async fn shutdown(&mut self) {
-        println!(
-            "🛑 [NODE {}] Shutting down gracefully...",
-            self.config.node_id
-        );
+        println!("🛑 [NODE {}] Shutting down...", self.config.node_id);
 
         if let Some(leader_state) = &self.leader_state {
             if !leader_state.last_seq_nums.is_empty() {
